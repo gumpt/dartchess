@@ -662,10 +662,13 @@ bool _isWhitespace(String line) => RegExp(r'^\s*$').hasMatch(line);
 
 bool _isCommentLine(String line) => line.startsWith('%');
 
+bool _hasHeaderLine(String line) => line.contains('[');
+
 /// A class to read a string and create a [PgnGame]
 class _PgnParser {
   List<String> _lineBuf = [];
   late bool _found;
+  late bool _hasResult;
   late _ParserState _state = _ParserState.pre;
   late PgnHeaders _gameHeaders;
   late List<String> _gameComments;
@@ -686,6 +689,7 @@ class _PgnParser {
 
   void _resetGame() {
     _found = false;
+    _hasResult = false;
     _state = _ParserState.pre;
     _gameHeaders = initHeaders();
     _gameMoves = PgnNode();
@@ -776,11 +780,19 @@ class _PgnParser {
         case _ParserState.moves:
           {
             if (freshLine) {
+              if (_hasHeaderLine(line)) {
+                _emit();
+                freshLine = false;
+                continue;
+              }
               if (_isCommentLine(line)) return;
-              if (_isWhitespace(line)) return _emit();
+              if (_isWhitespace(line)) {
+                if (_hasResult) return _emit();
+                return;
+              }
             }
             final tokenRegex = RegExp(
-                r'(?:[NBKRQ]?[a-h]?[1-8]?[-x]?[a-h][1-8](?:=?[nbrqkNBRQK])?|[pnbrqkPNBRQK]?@[a-h][1-8]|O-O-O|0-0-0|O-O|0-0)[+#]?|--|Z0|0000|@@@@|{|;|\$\d{1,4}|[?!]{1,2}|\(|\)|\*|1-0|0-1|1\/2-1\/2/');
+                r'(?:[NBKRQ]?[a-h]?[1-8]?[-x]?[a-h][1-8](?:=?[nbrqkNBRQK])?|[pnbrqkPNBRQK]?@[a-h][1-8]|O-O-O|0-0-0|O-O|0-0|1-0|0-1|1\/2-1\/2)[+#]?|--|Z0|0000|@@@@|{|;|\$\d{1,4}|[?!]{1,2}|\(|\)|\*|1-0|0-1|1/2-1/2/');
             final matches = tokenRegex.allMatches(line);
             for (final match in matches) {
               final frame = _stack[_stack.length - 1];
@@ -809,6 +821,7 @@ class _PgnParser {
                   if (_stack.length == 1 && token != '*') {
                     _gameHeaders['Result'] = token;
                   }
+                  _hasResult = true;
                 } else if (token == '(') {
                   _stack.add(_ParserFrame(parent: frame.parent, root: false));
                 } else if (token == ')') {
@@ -817,7 +830,7 @@ class _PgnParser {
                   final openIndex = match.end;
                   if (openIndex < line.length) {
                     final beginIndex =
-                        line[openIndex] == ' ' ? openIndex + 1 : openIndex;
+                    line[openIndex] == ' ' ? openIndex + 1 : openIndex;
                     line = line.substring(beginIndex);
                   }
                   _state = _ParserState.comment;
